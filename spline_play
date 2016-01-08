@@ -1,0 +1,138 @@
+# SPLINE FITTING IN PHILLY
+
+
+## with cross-sectional data ##
+
+library(mgcv)
+
+# simulation
+
+set.seed(25390)
+
+n<-500
+age<-rnorm(n)
+tbv<-rnorm(n)
+sex<-rbinom(n,1,0.3)
+str<-3*age^3+17*tbv+age^2*tbv+10*rnorm(n)
+
+# with real cross sectional data
+
+data.l #longitudinal data file
+data.l$scan.order <- ave(data.l$AGESCAN, as.factor(data.l$PERSON), FUN=rank)
+data <- data.l[data.l$scan.order=="1",]
+data$PERSON <- factor(data$PERSON)
+data$FAMID <- factor(data$FAMID)
+data$tbv <- log10(data$der_TTVgmwm)
+data$gmv <- log10(data$GMV)
+data$age <- data$AGESCAN
+data$sex <- ordered((data$SEX=="M")*1)
+
+
+# we will use unpenalized splines for inference, and penalized splines for visualization. this looks at the difference in for between the two
+
+
+magic.model<-gam(gmv~s(age)+s(age,by=tbv), data=data)
+plot(magic.model)
+
+magic.model<-gam(gmv~s(age,fx=TRUE)+s(age,by=tbv,fx=TRUE), data=data)
+plot(magic.model)
+
+# using unpenalized splines to compare models
+
+magic.model<-gam(gmv~s(age,fx=TRUE)+s(age,by=tbv,fx=TRUE), data=data) #main effect of TBV automatically in the model
+base.magic.model<-gam(gmv~ tbv + age:tbv+s(age,fx=TRUE), data=data)
+really.base.magic.model<-gam(gmv~tbv+s(age,fx=TRUE), data=data)
+
+anova(magic.model,base.magic.model,test='F')# nonlinear dynamic allometry vs. linear dynamic allometry
+anova(magic.model,really.base.magic.model,test='F') # nonlinear dynamic allometry vs. static allometry
+anova(base.magic.model,really.base.magic.model,test='F') # linear dynamic allometry vs. static allometry
+
+summary(base.magic.model)
+
+Family: gaussian
+Link function: identity
+
+Formula:
+  gmv ~ tbv + age:tbv + s(age, fx = TRUE)
+
+Parametric coefficients:
+  Estimate Std. Error t value Pr(>|t|)
+(Intercept) -0.106733   0.065983  -1.618    0.106
+tbv          1.041927   0.031508  33.069   <2e-16 *** # tbv effect at age=0
+  tbv:age     -0.004812   0.002407  -1.999    0.046 *  # tbv chnage with 1 year
+  ---
+  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Approximate significance of smooth terms:
+  edf Ref.df     F p-value
+s(age)   9      9 1.746  0.0752 .
+---
+  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+R-sq.(adj) =  0.925   Deviance explained = 92.6%
+GCV = 0.00015092  Scale est. = 0.00014864  n = 794
+
+
+### to try to estimate tbv coefficient for nonlinear age effect
+coeffs = coefficients(magic.model)
+# fake data frame for values of age to predict coefficient for
+fake.data = data.frame(age=seq(15, 25, length.out=200), tbv= mean(data$tbv) )
+# creates data frame with estimate spline function values
+X_1 = predict.gam(magic.model, fake.data, type='lpmatrix')
+# last 10 columns (in this case) are the coefficients for the ageXtbv interaction
+# they also include the intercept term
+plot(X_1[,11:20] %*% coeffs[11:20]/fake.data$tbv)
+
+## with sex
+
+# penalized splines for visualization
+
+magic.model<-gam(gmv[sex==0]~s(age[sex==0])+s(age[sex==0],by=tbv[sex==0]), data=data)
+summary(magic.model)
+magic.model<-gam(gmv[sex==1]~s(age[sex==1])+s(age[sex==1],by=tbv[sex==1]), data=data)
+summary(magic.model)
+plot(magic.model)
+
+
+# fitting with unpenalized splines for inference
+
+data$age.1<-data$age;data$age.1[which(data$sex==0)]<-0
+data$tbv.1<-data$tbv;data$tbv.1[which(data$sex==0)]<-0
+magic.model<-gam(gmv~s(age,fx=TRUE)+s(age,by=tbv,fx=TRUE)+s(age.1,fx=TRUE)+s(age.1,by=tbv.1,fx=TRUE), data=data)
+base.magic.model<-gam(gmv~s(age,fx=TRUE)+s(age,by=tbv,fx=TRUE), data=data)
+anova(magic.model,base.magic.model,test='F')
+#test for any difference whatsoever in allometry between sexes - could be a shift, linear, or nonlinear.
+
+
+## WITH LONGITUDINAL DATA ##
+
+library(gamm4)
+install.packages('pbkrtest')
+library(pbkrtest)
+
+
+data.l$PERSON <- factor(data.l$PERSON)
+data.l$FAMID <- factor(data.l$FAMID)
+data.l$tbv <- log10(data.l$der_TTVgmwm)
+data.l$gmv <- log10(data.l$GMV)
+data.l$age <- data.l$AGESCAN
+data.l$sex <- ordered((data.l$SEX=="M")*1)
+data.l$thalv <- log10(data.l$BIL_thalamus_V)
+data.l$gpv <- log10(data.l$BIL_gp_V)
+data.l$wmv <- log10(data.l$WMV)
+
+id <- factor(data.l$PERSON)
+fam.id <- factor(data.l$FAMID)
+
+
+magic.model.matrix<-model.matrix(gam(wmv~s(age,fx=TRUE)+s(age,by=tbv,fx=TRUE), data=data.l))
+base.magic.model.matrix<-model.matrix(gam(wmv~s(age,fx=TRUE)+ tbv +age:tbv,fx=TRUE, data=data.l))
+really.base.magic.model.matrix<-model.matrix(gam(wmv~s(age,fx=TRUE)+tbv,fx=TRUE, data=data.l))
+
+magic.model<-lmer(data.l$wmv~ -1 + magic.model.matrix+(1|fam.id/id))
+base.magic.model<-lmer(data.l$wmv~ -1 + base.magic.model.matrix+(1|fam.id/id))
+really.base.magic.model<-lmer(data.l$wmv~-1 + really.base.magic.model.matrix+(1|fam.id/id))
+pb.b <- PBmodcomp(magic.model, base.magic.model, nsim=500)
+pb.b.2 <- PBmodcomp(base.magic.model, really.base.magic.model,  nsim=500)
+
+#with.sex
